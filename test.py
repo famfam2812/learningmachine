@@ -1,43 +1,27 @@
-import matplotlib.pyplot as plt
 import numpy as np
+from timeit import timeit
+import nnfs
 
-def f(x):
-    return 2*x**2
+nnfs.init()
 
-x = np.arange(0,5,0.001)
-y = f(x)
+softmax_outputs = np.array([[0.7, 0.1, 0.2],
+ [0.1, 0.5, 0.4],
+ [0.02, 0.9, 0.08]])
+class_targets = np.array([0, 1, 1])
 
-plt.plot(x,y)
+def f1():
+    softmax_loss = Activation_Softmax_Loss_CategoricalCrossentropy()
+    softmax_loss.backward(softmax_outputs, class_targets)
+    dvalues1 = softmax_loss.dinputs
 
-colors = ["k", "g", "r", "b", "c"]
-
-
-def apx_tang_line(x, apx_derivative):
-    return (apx_derivative*x) + b
-
-for i in range(5):
-
-
-    p2_delta = 0.0001
-
-    x1 = i
-    x2 = x1 + p2_delta
-
-    y1 = f(x1)
-    y2 = f(x2)
-
-    apx_derivative = (y2-y1)/(x2-x1)
-
-    b = y2-(apx_derivative*x2)
-
-
-    to_plot = [x1-0.9, x1, x1+0.9]
-    plt.scatter(x1, y1, c=colors[i])
-    plt.plot([point for point in to_plot], [apx_tang_line(point,
-        apx_derivative) for point in to_plot], c=colors[i])
-
-
-    print(f"Approximate derivative for f(x) where x = {x1} is {apx_derivative}")
-
-
-plt.show()
+def f2():
+    activation = Activation_Softmax()
+    activation.output = softmax_outputs
+    loss = Loss_CategoricalCrossentropy()
+    loss.backward(softmax_outputs, class_targets)
+    activation.backward(loss.dinputs)
+    dvalues2 = activation.dinputs
+    
+t1 = timeit(lambda: f1(), number=10000)
+t2 = timeit(lambda: f2(), number=10000)
+print(t2/t1)

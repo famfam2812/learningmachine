@@ -1,12 +1,24 @@
 import numpy as np
+import nnfs
+from timeit import timeit
+from nnfs.datasets import spiral_data
+
+nnfs.init()
 # We have 3 samples (feature sets) of data now
 inputs = np.array([[1, 2, 3, 2.5],
- [2., 5., -1., 2],
- [-1.5, 2.7, 3.3, -0.8]])
+                    [2., 5., -1., 2],
+                    [-1.5, 2.7, 3.3, -0.8]])
+
+
+class_targets = np.array([0, 1, 1])
 # We have 3 sets of weights - one set for each neuron now
 weights = np.array([[0.2, 0.8, -0.5, 1],
- [0.5, -0.91, 0.26, -0.5],
- [-0.26, -0.27, 0.17, 0.87]]).T
+                    [0.5, -0.91, 0.26, -0.5],
+                    [-0.26, -0.27, 0.17, 0.87]]).T
+
+softmax_outputs = np.array([[0.7, 0.1, 0.2],
+                            [0.1, 0.5, 0.4],
+                            [0.02, 0.9, 0.08]])
 # One bias for each neuron
 biases = np.array([[2], [3], [0.5]]).T
 
@@ -41,12 +53,17 @@ print(biases)
 # Dense layer
 class Layer_Dense:
     # Layer initialization
-    def __init__(self, inputs, neurons):
-        self.weights = 0.01 * np.random.randn(inputs, neurons)
-        self.biases = np.zeros((1, neurons))
+    def __init__(self, n_inputs, n_neurons):
+        # Initialize weights and biases
+        self.weights = 0.01 * np.random.randn(n_inputs, n_neurons)
+        self.biases = np.zeros((1, n_neurons))
     # Forward pass
     def forward(self, inputs):
+        # Remember input values
+        self.inputs = inputs
+        # Calculate output values from input ones, weights and biases
         self.output = np.dot(inputs, self.weights) + self.biases
+
 
     def backward(self, dvalues):
         # Gradients on parameters
@@ -81,15 +98,26 @@ class Loss:
         return data_loss
 
 class Loss_CategoricalCrossentropy(Loss):
-
+# Forward pass
     def forward(self, y_pred, y_true):
-        samples = len(y_pred) #number of samples
-        y_pred_clipped = np.clip(y_pred, 1e-7, 1 - 1e-7) #clip data for at undgå divison af 0
-        y_pred_clipped = y_pred_clipped[range(samples), y_true] #sandsynlighed for target value
-        negative_log_likelihoods = -np.log(y_pred_clipped) #losses
+        # Number of samples in a batch
+        samples = len(y_pred)
+        # Clip data to prevent division by 0
+        # Clip both sides to not drag mean towards any value
+        y_pred_clipped = np.clip(y_pred, 1e-7, 1 - 1e-7)
+        # Probabilities for target values -
+        # only if categorical labels
+        if len(y_true.shape) == 1:
+            y_pred_clipped = y_pred_clipped[range(samples), y_true]
+            # Losses
+            negative_log_likelihoods = -np.log(y_pred_clipped)
+            # Mask values - only for one-hot encoded labels
+        if len(y_true.shape) == 2:
+            negative_log_likelihoods *= y_true
+             # Return losses
         return negative_log_likelihoods
 
-    # Backward pass
+        # Backward pass
     def backward(self, dvalues, y_true):
         # Number of samples
         samples = len(dvalues)
@@ -99,16 +127,22 @@ class Loss_CategoricalCrossentropy(Loss):
         # If labels are sparse, turn them into one-hot vector
         if len(y_true.shape) == 1:
             y_true = np.eye(labels)[y_true]
-            # Calculate gradient
-            self.dinputs = -y_true / dvalues
-            # Normalize gradient
-            self.dinputs = self.dinputs / samples
+        # Calculate gradient
+        self.dinputs = -y_true / dvalues
+        # Normalize gradient
+        self.dinputs = self.dinputs / samples
+
 
 class Activation_Softmax:
     def forward(self, inputs):
-
-        exp_values = np.exp(inputs - np.max(inputs, axis=1, keepdims=True))
-        probabilities = exp_values / np.sum(exp_values, axis=1, keepdims=True)
+        # Remember input values
+        self.inputs = inputs
+        # Get unnormalized probabilities
+        exp_values = np.exp(inputs - np.max(inputs, axis=1,
+        keepdims=True))
+        # Normalize them for each sample
+        probabilities = exp_values / np.sum(exp_values, axis=1,
+        keepdims=True)
         self.output = probabilities
 
     # Backward pass
@@ -127,3 +161,101 @@ class Activation_Softmax:
             # and add it to the array of sample gradients
             self.dinputs[index] = np.dot(jacobian_matrix, single_dvalues)
 
+# Softmax classifier - combined Softmax activation
+# and cross-entropy loss for faster backward step
+class Activation_Softmax_Loss_CategoricalCrossentropy():
+    # Creates activation and loss function objects
+    def __init__(self):
+        self.activation = Activation_Softmax()
+        self.loss = Loss_CategoricalCrossentropy()
+
+    # Forward pass
+    def forward(self, inputs, y_true):
+        # Output layer's activation function
+        self.activation.forward(inputs)
+        # Set the output
+        self.output = self.activation.output
+        # Calculate and return loss value
+        return self.loss.calculate(self.output, y_true)
+
+    # Backward pass
+    def backward(self, dvalues, y_true):
+        # Number of samples
+        samples = len(dvalues)
+        # If labels are one-hot encoded,
+        # turn them into discrete values
+        if len(y_true.shape) == 2:
+            y_true = np.argmax(y_true, axis=1)
+        # Copy so we can safely modify
+        self.dinputs = dvalues.copy()
+        # Calculate gradient
+        self.dinputs[range(samples), y_true] -= 1
+        # Normalize gradient
+        self.dinputs = self.dinputs / samples
+
+
+
+
+
+softmax_loss = Activation_Softmax_Loss_CategoricalCrossentropy()
+softmax_loss.backward(softmax_outputs, class_targets)
+dvalues1 = softmax_loss.dinputs
+activation = Activation_Softmax()
+activation.output = softmax_outputs
+loss = Loss_CategoricalCrossentropy()
+loss.backward(softmax_outputs, class_targets)
+activation.backward(loss.dinputs)
+
+
+X, y = spiral_data(samples=100, classes=3)
+
+dense1 = Layer_Dense(2, 3)
+
+activation1 = Activation_ReLU()
+
+dense2 = Layer_Dense(3, 3)
+loss_activation = Activation_Softmax_Loss_CategoricalCrossentropy()
+
+dense1.forward(X)
+
+activation1.forward(dense1.output)
+
+dense2.forward(activation1.output)
+
+loss = loss_activation.forward(dense2.output, y)
+
+# Let's see output of the first few samples:
+print(loss_activation.output[:5])
+
+# Let's see output of the first few samples:
+print(loss_activation.output[:5])
+
+# Print loss value
+print('loss:', loss)
+
+predictions = np.argmax(loss_activation.output, axis=1)
+accuracy = np.mean(predictions==y)
+
+# Print accuracy
+print('acc:', accuracy)
+
+# Backward pass
+loss_activation.backward(loss_activation.output, y)
+dense2.backward(loss_activation.dinputs)
+activation1.backward(dense2.dinputs)
+dense1.backward(activation1.dinputs)
+
+
+# Print gradients
+print('Dweights1:', dense1.dweights)
+print('Dbiases1:', dense1.dbiases)
+print('Dweights2: ', dense2.dweights)
+print('Dbiases2: ', dense2.dbiases)
+
+
+"""dvalues2 = activation.dinputs
+print('Gradients: combined loss and activation:')
+print(dvalues1)
+print('Gradients: separate loss and activation:')
+print(dvalues2)
+"""
