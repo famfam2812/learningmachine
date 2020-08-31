@@ -1,12 +1,43 @@
+import matplotlib.pyplot as plt
 import numpy as np
 
-softmax_outputs = [[0.7, 0.2, 0.1],
-                    [0.5, 0.1, 0.4],
-                    [0.02, 0.9, 0.08]]
+def f(x):
+    return 2*x**2
 
-targets = [0, 1, 1]
+x = np.arange(0,5,0.001)
+y = f(x)
 
-predictions = np.argmax(softmax_outputs, axis=1)
-accuracy = np.mean(predictions==targets)
+plt.plot(x,y)
 
-print('Acc: ', accuracy)
+colors = ["k", "g", "r", "b", "c"]
+
+
+def apx_tang_line(x, apx_derivative):
+    return (apx_derivative*x) + b
+
+for i in range(5):
+
+
+    p2_delta = 0.0001
+
+    x1 = i
+    x2 = x1 + p2_delta
+
+    y1 = f(x1)
+    y2 = f(x2)
+
+    apx_derivative = (y2-y1)/(x2-x1)
+
+    b = y2-(apx_derivative*x2)
+
+
+    to_plot = [x1-0.9, x1, x1+0.9]
+    plt.scatter(x1, y1, c=colors[i])
+    plt.plot([point for point in to_plot], [apx_tang_line(point,
+        apx_derivative) for point in to_plot], c=colors[i])
+
+
+    print(f"Approximate derivative for f(x) where x = {x1} is {apx_derivative}")
+
+
+plt.show()
